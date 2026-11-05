@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panenku.co.id - Sales Dashboard Real-Time</title>
+    <!-- Framework Desain (Tailwind CSS) -->
+    <script src="https://jsdelivr.net"></script>
+    <!-- Pembuat Grafik (Chart.js) -->
+    <script src="https://jsdelivr.net"></script>
+    <!-- Pembaca Google Sheets (PapaParse) -->
+    <script src="https://cloudflare.com"></script>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans">
+
+    <!-- Navigasi Atas -->
+    <nav class="bg-emerald-600 text-white p-4 shadow-md flex justify-between items-center sticky top-0 z-50">
+        <div class="flex items-center space-x-2">
+            <span class="text-2xl font-bold tracking-wider">Panenku<span class="text-emerald-200">.co.id</span></span>
+            <span class="bg-emerald-700 text-xs px-2 py-1 rounded-full animate-pulse">Live Dashboard</span>
+        </div>
+        <button onclick="fetchData()" class="bg-emerald-500 hover:bg-emerald-400 text-white text-sm font-semibold py-2 px-4 rounded-lg shadow transition cursor-pointer">
+            🔄 Segarkan Data
+        </button>
+    </nav>
+
+    <!-- Konten Utama -->
+    <main class="max-w-7xl mx-auto p-4 lg:p-8 space-y-6">
+        
+        <!-- Bagian Grafik Utama: Tren Penjualan Harian, Mingguan, Bulanan -->
+        <section class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+            <h2 class="text-lg font-bold text-slate-700 mb-4">📈 Grafik Tren Total Penjualan (Real-Time)</h2>
+            <div class="relative h-80 w-full">
+                <canvas id="trendChart"></canvas>
+            </div>
+        </section>
+
+        <!-- Bagian Grafik Sampingan: Produk Terlaris & Belanja Perorangan -->
+        <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- 5 Produk Terlaris -->
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <h2 class="text-lg font-bold text-slate-700 mb-4">🏆 Top 5 Produk Terlaris (Kuantitas)</h2>
+                <div class="relative h-72 w-full flex justify-center">
+                    <canvas id="topProductsChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Belanja Perorangan -->
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <h2 class="text-lg font-bold text-slate-700 mb-4">👤 Grafik Belanja Perorangan (Pelanggan Setia)</h2>
+                <div class="relative h-72 w-full">
+                    <canvas id="customerChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- Tabel Riwayat Penjualan & Tombol Bukti Bayar -->
+        <section class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+            <h2 class="text-lg font-bold text-slate-700 mb-4">📄 Riwayat Penjualan & Status Pembayaran</h2>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-slate-200">
+                    <thead class="bg-slate-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Tanggal</th>
+                            <th class="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Pelanggan</th>
+                            <th class="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Produk</th>
+                            <th class="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Total Harga</th>
+                            <th class="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Status</th>
+                            <th class="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="transaction-table" class="bg-white divide-y divide-slate-200 text-sm">
+                        <!-- Data diisi oleh JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        // TARUH LINK URL CSV GOOGLE SHEETS ANDA DI BAWAH INI
+        const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTBdwmvtHM7esXrv6Qiw4_GU98-g8dZaLksRziB066BiswOvodWJDj0wVCDPnnou_GEFHkUlEkAkaoU/pub?gid=0&single=true&output=csv';
+
+        let trendChart, topProductsChart, customerChart;
+
+        async function fetchData() {
+            if (SHEET_URL === 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTBdwmvtHM7esXrv6Qiw4_GU98-g8dZaLksRziB066BiswOvodWJDj0wVCDPnnou_GEFHkUlEkAkaoU/pub?gid=0&single=true&output=csv') {
+                alert('Peringatan: Silakan ganti kata https://docs.google.com/spreadsheets/d/e/2PACX-1vTBdwmvtHM7esXrv6Qiw4_GU98-g8dZaLksRziB066BiswOvodWJDj0wVCDPnnou_GEFHkUlEkAkaoU/pub?gid=0&single=true&output=csv');
+                return;
+            }
+            Papa.parse(SHEET_URL, {
+                download: true,
+                header: true,
+                dynamicTyping: true,
+                complete: function(results) {
+                    processData(results.data);
+                }
+            });
+        }
+
+        function processData(data) {
+            const cleanData = data.filter(row => row.Tanggal && row.Total_Harga);
+
+            let productSales = {}, customerSales = {}, dateSales = {};
+
+            // Urutkan data berdasarkan tanggal terbaru
+            cleanData.sort((a, b) => new Date(b.Tanggal) - new Date(a.Tanggal));
+
+            const tableBody = document.getElementById('transaction-table');
+            tableBody.innerHTML = '';
+
+            cleanData.forEach(row => {
+                // Hitung akumulasi data untuk grafik
+                dateSales[row.Tanggal] = (dateSales[row.Tanggal] || 0) + row.Total_Harga;
+                productSales[row.Produk] = (productSales[row.Produk] || 0) + row.Jumlah;
+                customerSales[row.Nama_Pelanggan] = (customerSales[row.Nama_Pelanggan] || 0) + row.Total_Harga;
+
+                // Membuat tampilan badge status
+                const isLunas = String(row.Status).trim().toLowerCase() === 'lunas';
+                const statusBadge = isLunas 
+                    ? `<span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">Lunas</span>` 
+                    : `<span class="px-2 py-1 text-xs font-semibold rounded-full bg-amber-100 text-amber-800">Pending</span>`;
+
+                // Membuat Tombol Bukti Bayar Aktif jika sudah Lunas dan ada Link-nya
+                const actionButton = (isLunas && row.Link_Bukti_Bayar)
+                    ? `<a href="${row.Link_Bukti_Bayar}" target="_blank" class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-1 px-3 rounded shadow transition">👁️ Bukti Bayar</a>`
+                    : `<span class="text-slate-400 text-xs">-</span>`;
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap">${row.Tanggal}</td>
+                    <td class="px-6 py-4 whitespace-nowrap font-medium text-slate-900">${row.Nama_Pelanggan}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${row.Produk}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${formatRupiah(row.Total_Harga)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${statusBadge}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${actionButton}</td>
+                `;
+                tableBody.appendChild(tr);
+            });
+
+            // Tampilkan ke Grafik
+            renderCharts(dateSales, productSales, customerSales);
+        }
+
+        function formatRupiah(angka) {
+            return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(angka);
+        }
+
+        function renderCharts(dateSales, productSales, customerSales) {
+            // 1. Grafik Tren Penjualan
+            const sortedDates = Object.keys(dateSales).sort();
+            const salesValues = sortedDates.map(date => dateSales[date]);
+
+            if (trendChart) trendChart.destroy();
+            trendChart = new Chart(document.getElementById('trendChart').getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels: sortedDates,
+                    datasets: [{
+                        label: 'Pendapatan Penjualan (Rp)',
+                        data: salesValues,
+                        borderColor: '#059669',
+                        backgroundColor: 'rgba(5, 150, 105, 0.1)',
+                        fill: true,
+                        tension: 0.2
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+
+            // 2. Grafik Top 5 Produk
+            const topProducts = Object.entries(productSales).sort((a, b) => b[1] - a[1]).slice(0, 5);
+            if (topProductsChart) topProductsChart.destroy();
+            topProductsChart = new Chart(document.getElementById('topProductsChart').getContext('2d'), {
+                type: 'doughnut',
+                data: {
+                    labels: topProducts.map(p => p[0]),
+                    datasets: [{
+                        data: topProducts.map(p => p[1]),
+                        backgroundColor: ['#10B981', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6']
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+
+            // 3. Grafik Belanja Perorangan
+            const topCustomers = Object.entries(customerSales).sort((a, b) => b[1] - a[1]).slice(0, 5);
+            if (customerChart) customerChart.destroy();
+            customerChart = new Chart(document.getElementById('customerChart').getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: topCustomers.map(c => c[0]),
+                    datasets: [{
+                        label: 'Total Belanja (Rp)',
+                        data: topCustomers.map(c => c[1]),
+
+kamu ahli dalam bidang web programing. tolong buatkan saya script web program dashboard penjualan panenku.co.id yang dapat diakses dimanapun dan update reel time dengan menarik data dari google sheet data penjualan sebagai sourcenya. pada halaman web tolong tampilkan informasi total penjualan perbulan, minggu dan hari berupa grafik. tampilkan juga 5 produk terlaris yang sering dibeli dalam chart dan grafik belanja perorangan. tampilan web dibuat interaktif dan menarik.
+
+Tentu, saya bisa bantu. Untuk membuat dashboard yang dapat diakses di mana saja, diperbarui secara real-time, dan menggunakan Google Sheets sebagai database, pendekatan terbaik, termudah, dan gratis adalah menggunakan kombinasi HTML, CSS (Tailwind CSS), JavaScript, serta Chart.js untuk grafiknya.
+Agar data dari Google Sheets bisa ditarik secara real-time ke web, kita akan memformat Google Sheet tersebut menjadi format CSV/JSON publik.
+Berikut adalah panduan setup Google Sheets dan script lengkap untuk web dashboard panenku.co.id.
+
+Langkah 1: Setup Google Sheets (PENTING)
+
+1. Buat Google Sheet baru dengan struktur kolom berikut di baris pertama (Header):
+	• A1: Tanggal (Format: YYYY-MM-DD, contoh: 2026-11-05)
+	• B1: Nama_Pelanggan
+	• C1: Produk
+	• D1: Jumlah (Angka quantity)
+	• E1: Total_Harga (Angka nominal)
+2. Isi beberapa data contoh di bawahnya.
+3. Di Google Sheets, klik File > Share > Publish to web (Bagikan ke web).
+4. Pilih opsi Link, ubah pilihan "Entire Document" menjadi sheet tempat data Anda, lalu ubah formatnya dari "Web page" menjadi Comma-separated values (.csv).
+5. Klik Publish dan salin (copy) link URL yang diberikan.
+
+Langkah 2: Script Web Dashboard (index.html)
+
+Buat sebuah file bernama index.html dan paste kode di bawah ini. Jangan lupa untuk mengganti URL Google Sheet pada variabel SHEET_URL di dalam script (baris ke-58) dengan link CSV yang Anda dapatkan dari Langkah 1.
+html
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panenku.co.id - Sales Dashboard Real-Time</title>
+    <!-- Tailwind CSS untuk Desain Interaktif & Modern -->
+    <script src="https://jsdelivr.net"></script>
+    <!-- Chart.js untuk Grafik -->
+    <script src="https://jsdelivr.net"></script>
+    <!-- PapaParse untuk Membaca Data CSV Google Sheet -->
+    <script src="https://cloudflare.com"></script>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans">
+
+    <!-- Header / Navbar -->
+    <nav class="bg-emerald-600 text-white p-4 shadow-md flex justify-between items-center sticky top-0 z-50">
+        <div class="flex items-center space-x-2">
+            <span class="text-2xl font-bold tracking-wider">Panenku<span class="text-emerald-200">.co.id</span></span>
+            <span class="bg-emerald-700 text-xs px-2 py-1 rounded-full animate-pulse">Real-Time Dashboard</span>
+        </div>
+        <button onclick="fetchData()" class="bg-emerald-500 hover:bg-emerald-400 text-white text-sm font-semibold py-2 px-4 rounded-lg shadow transition duration-200">
+            🔄 Refresh Data
+        </button>
+    </nav>
+
+    <!-- Main Content Container -->
+    <main class="max-w-7xl mx-auto p-4 lg:p-8 space-y-6">
+        
+        <!-- Baris 1: Ringkasan Penjualan -->
+        <section class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between">
+                <span class="text-sm font-medium text-gray-500 uppercase">Penjualan Hari Ini</span>
+                <h3 id="sales-day" class="text-3xl font-bold text-emerald-600 mt-2">Rp 0</h3>
+            </div>
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between">
+                <span class="text-sm font-medium text-gray-500 uppercase">Penjualan Minggu Ini</span>
+                <h3 id="sales-week" class="text-3xl font-bold text-emerald-600 mt-2">Rp 0</h3>
+            </div>
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between">
+                <span class="text-sm font-medium text-gray-500 uppercase">Penjualan Bulan Ini</span>
+                <h3 id="sales-month" class="text-3xl font-bold text-emerald-600 mt-2">Rp 0</h3>
+            </div>
+        </section>
+
+        <!-- Baris 2: Grafik Tren Penjualan Waktu (Hari, Minggu, Bulan) -->
+        <section class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+            <h2 class="text-lg font-bold text-gray-700 mb-4">📈 Grafik Tren Total Penjualan</h2>
+            <div class="relative h-80 w-full">
+                <canvas id="trendChart"></canvas>
+            </div>
+        </section>
+
+        <!-- Baris 3: 5 Produk Terlaris & Belanja Perorangan -->
+        <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- 5 Produk Terlaris -->
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <h2 class="text-lg font-bold text-gray-700 mb-4">🏆 Top 5 Produk Terlaris</h2>
+                <div class="relative h-72 w-full flex justify-center">
+                    <canvas id="topProductsChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Grafik Belanja Perorangan -->
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <h2 class="text-lg font-bold text-gray-700 mb-4">👤 Grafik Belanja Perorangan (Top Customers)</h2>
+                <div class="relative h-72 w-full">
+                    <canvas id="customerChart"></canvas>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        // MASUKKAN URL CSV GOOGLE SHEET ANDA DI SINI
+        const SHEET_URL = 'PASTE_LINK_CSV_GOOGLE_SHEET_ANDA_DI_SINI';
+
+        let trendChart, topProductsChart, customerChart;
+
+        // Fungsi Load & Parse Data dari Google Sheet
+        async function fetchData() {
+            if (SHEET_URL === 'PASTE_LINK_CSV_GOOGLE_SHEET_ANDA_DI_SINI') {
+                alert('Silakan masukkan URL CSV Google Sheet Anda di dalam script terlebih dahulu!');
+                return;
+            }
+
+            Papa.parse(SHEET_URL, {
+                download: true,
+                header: true,
+                dynamicTyping: true,
+                complete: function(results) {
+                    processData(results.data);
+                },
+                error: function(err) {
+                    console.error("Gagal menarik data:", err);
+                }
+            });
+        }
+
+        // Fungsi Mengolah Data untuk Grafik & Ringkasan
+        function processData(data) {
+            // Filter data kosong jika ada
+            const cleanData = data.filter(row => row.Tanggal && row.Total_Harga);
+
+            let totalHari Ini = 0, totalMingguIni = 0, totalBulanIni = 0;
+            let productSales = {}, customerSales = {}, dateSales = {};
+
+            // Dapatkan waktu saat ini untuk komparasi real-time
+            const now = new Date();
+            const currentYear = now.getFullYear();
+            const currentMonth = now.getMonth(); 
+
+            cleanData.forEach(row => {
+                const orderDate = new Date(row.Tanggal);
+                const total = row.Total_Harga;
+
+                // Hitung Ringkasan (Hari, Minggu, Bulan)
+                // Catatan: Menggunakan basis tanggal dinamis (contoh asumsi data tahun berjalan)
+                if (orderDate.toDateString() === now.toDateString()) {
+                    totalHari Ini += total;
+                }
+                // Hitung jika dalam 7 hari terakhir
+                if ((now - orderDate) / (1000 * 60 * 60 * 24) <= 7) {
+                    totalMingguIni += total;
+                }
+                if (orderDate.getMonth() === currentMonth && orderDate.getFullYear() === currentYear) {
+                    totalBulanIni += total;
+                }
+
+                // Data untuk Tren Penjualan berdasarkan Tanggal
+                const dateStr = row.Tanggal;
+                dateSales[dateStr] = (dateSales[dateStr] || 0) + total;
+
+                // Data untuk Produk Terlaris
+                productSales[row.Produk] = (productSales[row.Produk] || 0) + row.Jumlah;
+
+                // Data untuk Belanja Perorangan (Pelanggan)
+                customerSales[row.Nama_Pelanggan] = (customerSales[row.Nama_Pelanggan] || 0) + total;
+            });
+
+            // Update Teks Ringkasan di UI
+            document.getElementById('sales-day').innerText = formatRupiah(totalHari Ini);
+            document.getElementById('sales-week').innerText = formatRupiah(totalMingguIni);
+            document.getElementById('sales-month').innerText = formatRupiah(totalBulanIni);
+
+            // Render/Update Semua Chart
+            updateTrendChart(dateSales);
+            updateTopProductsChart(productSales);
+            updateCustomerChart(customerSales);
+        }
+
+        // Helper Format Mata Uang Rupiah
+        function formatRupiah(angka) {
+            return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(angka);
+        }
+
+        // 1. Grafik Tren Penjualan (Line Chart)
+        function updateTrendChart(dateSales) {
+            const sortedDates = Object.keys(dateSales).sort();
+            const salesValues = sortedDates.map(date => dateSales[date]);
+
+            if (trendChart) trendChart.destroy();
+            const ctx = document.getElementById('trendChart').getContext('2d');
+            trendChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: sortedDates,
+                    datasets: [{
+                        label: 'Total Penjualan (Rp)',
+                        data: salesValues,
+                        borderColor: '#059669',
+                        backgroundColor: 'rgba(5, 150, 105, 0.1)',
+                        fill: true,
+                        tension: 0.3
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+        }
+
+        // 2. Grafik Top 5 Produk Terlaris (Doughnut Chart)
+        function updateTopProductsChart(productSales) {
+            const sortedProducts = Object.entries(productSales)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 5);
+
+            const labels = sortedProducts.map(p => p[0]);
+            const data = sortedProducts.map(p => p[1]);
+
+            if (topProductsChart) topProductsChart.destroy();
+            const ctx = document.getElementById('topProductsChart').getContext('2d');
+            topProductsChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: ['#10B981', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6']
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+        }
+
+        // 3. Grafik Belanja Perorangan (Bar Chart)
+        function updateCustomerChart(customerSales) {
+            const sortedCustomers = Object.entries(customerSales)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 7); // Ambil top 7 pembeli terbesar
+
+            const labels = sortedCustomers.map(c => c[0]);
+            const data = sortedCustomers.map(c => c[1]);
+
+            if (customerChart) customerChart.destroy();
+            const ctx = document.getElementById('customerChart').getContext('2d');
+            customerChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+Use code with caution.
+datasets: [{
+label: 'Total Belanja (Rp)',
+data: data,
+backgroundColor: '#3B82F6'
+}]
+},
+options: { responsive: true, maintainAspectRatio: false }
+});
+}
+// Auto-refresh data setiap 30 detik untuk efek real-time
+setInterval(fetchData, 30000);
+// Load data pertama kali saat halaman dibuka
+window.onload = fetchData;
+
+
+
+---
+
+### Cara Mengakses Dashboard Ini Di Mana Saja:
+Karena Anda memerlukan dashboard yang bisa dibuka dari mana saja, file HTML di atas perlu dideploy secara online (gratis & aman):
+1. **Menggunakan GitHub Pages:** 
+   * Buat akun di GitHub, buat sebuah repository baru.
+   * Upload file `index.html` ke dalam repository tersebut.
+   * Masuk ke *Settings* repository > *Pages* > set branch ke `main` / `root`, lalu klik *Save*. Anda akan mendapatkan URL web gratis (misal: `username.github.io/sales-dashboard`).
+2. **Menggunakan Vercel / Netlify:**
+   * Cukup drop file `index.html` ke platform tersebut untuk publikasi instan dalam hitungan detik.
+
+### Keunggulan Sistem Ini:
+* **Tanpa Database Server Berbayar:** Google Sheets bertindak sebagai database cloud gratis Anda.
+* **Otomatis Update:** Menggunakan fungsi `setInterval` di JavaScript yang otomatis menarik data baru dari Google Sheet setiap 30 detik tanpa perlu memuat ulang halaman secara manual.
+* **Desain Responsif:** Tampilan otomatis menyesuaikan saat dibuka via Smartphone, Tablet, maupun PC/Laptop karena didukung framework Tailwind CSS.
+
+<FollowUp>
+Apakah Anda memerlukan fitur tambahan seperti **filter rentang tanggal khusus (date picker)** atau **fitur login/password** agar dashboard ini hanya bisa diakses oleh tim internal Panenku? Beritahu saya agar kodenya bisa kita kembangkan lebih lanjut.
+</FollowUp>
+
+kamu ahli dalam bidang web programing. tolong buatkan saya script web program dashboard penjualan panenku.co.id yang dapat diakses dimanapun dan update reel time dengan menarik data dari google sheet data penjualan sebagai sourcenya. pada halaman web tolong tampilkan informasi total penjualan perbulan, minggu dan hari berupa grafik. tampilkan juga 5 produk terlaris yang sering dibeli dalam chart dan grafik belanja perorangan serta menampilkan tombol bukti bayar apabila telah lunas. tampilan web dibuat interaktif dan menarik.
+
+Tentu! Berikut adalah pembaruan script lengkap yang menyertakan tabel riwayat transaksi interaktif beserta tombol "Lihat Bukti Bayar" jika statusnya Lunas.
+Kita akan menambahkan kolom baru pada database Google Sheet Anda.
+
+Langkah 1: Update Struktur Google Sheets (PENTING)
+
+Pastikan Google Sheet Anda memiliki kolom-kolom berikut di baris pertama (Header):
+• A1: Tanggal (Format: YYYY-MM-DD)
+• B1: Nama_Pelanggan
+• C1: Produk
+• D1: Jumlah
+• E1: Total_Harga
+• F1: Status (Isi dengan: Lunas atau Pending)
+• G1: Link_Bukti_Bayar (Isi dengan URL link gambar/foto bukti pembayaran dari Google Drive atau platform hosting gambar lainnya)
+Pastikan Anda telah melakukan "Publish to web" sebagai .csv seperti langkah sebelumnya.
+
+Langkah 2: Script Web Dashboard Lengkap (index.html)
+
+Silakan gunakan kode di bawah ini. Cukup ganti nilai const SHEET_URL dengan link CSV Google Sheet Anda.
+html
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panenku.co.id - Sales Dashboard Real-Time</title>
+    <!-- Tailwind CSS -->
+    <script src="https://jsdelivr.net"></script>
+    <!-- Chart.js -->
+    <script src="https://jsdelivr.net"></script>
+    <!-- PapaParse untuk CSV -->
+    <script src="https://cloudflare.com"></script>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans">
+
+    <!-- Navbar -->
+    <nav class="bg-emerald-600 text-white p-4 shadow-md flex justify-between items-center sticky top-0 z-50">
+        <div class="flex items-center space-x-2">
+            <span class="text-2xl font-bold tracking-wider">Panenku<span class="text-emerald-200">.co.id</span></span>
+            <span class="bg-emerald-700 text-xs px-2 py-1 rounded-full animate-pulse">Real-Time Dashboard</span>
+        </div>
+        <button onclick="fetchData()" class="bg-emerald-500 hover:bg-emerald-400 text-white text-sm font-semibold py-2 px-4 rounded-lg shadow transition duration-200 pointer-events-auto cursor-pointer">
+            🔄 Refresh Data
+        </button>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto p-4 lg:p-8 space-y-6">
+        
+        <!-- Baris 1: Ringkasan Penjualan -->
+        <section class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <span class="text-sm font-medium text-gray-500 uppercase">Penjualan Hari Ini</span>
+                <h3 id="sales-day" class="text-3xl font-bold text-emerald-600 mt-2">Rp 0</h3>
+            </div>
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <span class="text-sm font-medium text-gray-500 uppercase">Penjualan Minggu Ini</span>
+                <h3 id="sales-week" class="text-3xl font-bold text-emerald-600 mt-2">Rp 0</h3>
+            </div>
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <span class="text-sm font-medium text-gray-500 uppercase">Penjualan Bulan Ini</span>
+                <h3 id="sales-month" class="text-3xl font-bold text-emerald-600 mt-2">Rp 0</h3>
+            </div>
+        </section>
+
+        <!-- Baris 2: Grafik Tren Penjualan -->
+        <section class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+            <h2 class="text-lg font-bold text-gray-700 mb-4">📈 Grafik Tren Total Penjualan</h2>
+            <div class="relative h-80 w-full">
+                <canvas id="trendChart"></canvas>
+            </div>
+        </section>
+
+        <!-- Baris 3: 5 Produk Terlaris & Belanja Perorangan -->
+        <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <h2 class="text-lg font-bold text-gray-700 mb-4">🏆 Top 5 Produk Terlaris (Qty)</h2>
+                <div class="relative h-72 w-full flex justify-center">
+                    <canvas id="topProductsChart"></canvas>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <h2 class="text-lg font-bold text-gray-700 mb-4">👤 Grafik Belanja Perorangan (Top Pembeli)</h2>
+                <div class="relative h-72 w-full">
+                    <canvas id="customerChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- Baris 4: Tabel Riwayat Transaksi & Bukti Bayar -->
+        <section class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <h2 class="text-lg font-bold text-gray-700 mb-4">📄 Riwayat Penjualan Terbaru</h2>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tanggal</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pelanggan</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Produk</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Harga</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="transaction-table" class="bg-white divide-y divide-gray-200 text-sm">
+                        <!-- Data diisi otomatis oleh JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        // MASUKKAN URL CSV GOOGLE SHEET ANDA DI SINI
+        const SHEET_URL = 'PASTE_LINK_CSV_GOOGLE_SHEET_ANDA_DI_SINI';
+
+        let trendChart, topProductsChart, customerChart;
+
+        async function fetchData() {
+            if (SHEET_URL === 'PASTE_LINK_CSV_GOOGLE_SHEET_ANDA_DI_SINI') {
+                return;
+            }
+            Papa.parse(SHEET_URL, {
+                download: true,
+                header: true,
+                dynamicTyping: true,
+                complete: function(results) {
+                    processData(results.data);
+                }
+            });
+        }
+
+        function processData(data) {
+            const cleanData = data.filter(row => row.Tanggal && row.Total_Harga);
+
+            let totalHariIni = 0, totalMingguIni = 0, totalBulanIni = 0;
+            let productSales = {}, customerSales = {}, dateSales = {};
+            
+            const now = new Date();
+            const currentYear = now.getFullYear();
+            const currentMonth = now.getMonth();
+
+            // Clear table data
+            const tableBody = document.getElementById('transaction-table');
+            tableBody.innerHTML = '';
+
+            // Sort data terbaru di atas
+            cleanData.sort((a, b) => new Date(b.Tanggal) - new Date(a.Tanggal));
+
+            cleanData.forEach(row => {
+                const orderDate = new Date(row.Tanggal);
+                const total = row.Total_Harga;
+
+                // Hitung Ringkasan Nominal
+                if (orderDate.toDateString() === now.toDateString()) {
+                    totalHariIni += total;
+                }
+                if ((now - orderDate) / (1000 * 60 * 60 * 24) <= 7) {
+                    totalMingguIni += total;
+                }
+                if (orderDate.getMonth() === currentMonth && orderDate.getFullYear() === currentYear) {
+                    totalBulanIni += total;
+                }
+
+                // Pengelompokan Data Chart
+                dateSales[row.Tanggal] = (dateSales[row.Tanggal] || 0) + total;
+                productSales[row.Produk] = (productSales[row.Produk] || 0) + row.Jumlah;
+                customerSales[row.Nama_Pelanggan] = (customerSales[row.Nama_Pelanggan] || 0) + total;
+
+                // Inject Data ke Tabel Riwayat Penjualan
+                const statusBadge = row.Status === 'Lunas' 
+                    ? `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Lunas</span>` 
+                    : `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">Pending</span>`;
+
+                // Tampilkan tombol hanya jika status Lunas dan URL bukti bayar tersedia
+                const actionButton = (row.Status === 'Lunas' && row.Link_Bukti_Bayar)
+                    ? `<a href="${row.Link_Bukti_Bayar}" target="_blank" class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-1 px-3 rounded shadow transition">👁️ Bukti Bayar</a>`
+                    : `<span class="text-gray-400 text-xs">-</span>`;
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap">${row.Tanggal}</td>
+                    <td class="px-6 py-4 whitespace-nowrap font-medium text-gray-900">${row.Nama_Pelanggan}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${row.Produk}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${formatRupiah(total)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${statusBadge}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${actionButton}</td>
+                `;
+                tableBody.appendChild(tr);
+            });
+
+            document.getElementById('sales-day').innerText = formatRupiah(totalHariIni);
+            document.getElementById('sales-week').innerText = formatRupiah(totalMingguIni);
+            document.getElementById('sales-month').innerText = formatRupiah(totalBulanIni);
+
+            updateTrendChart(dateSales);
+            updateTopProductsChart(productSales);
+            updateCustomerChart(customerSales);
+        }
+
+        function formatRupiah(angka) {
+            return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(angka);
+        }
+
+        function updateTrendChart(dateSales) {
+            const sortedDates = Object.keys(dateSales).sort();
+            const salesValues = sortedDates.map(date => dateSales[date]);
+
+            if (trendChart) trendChart.destroy();
+            const ctx = document.getElementById('trendChart').getContext('2d');
+            trendChart = new Chart(ctx, {
+                type: 'line',
+Use code with caution.
+data: {
+labels: sortedDates,
+datasets: [{
+label: 'Total Penjualan (Rp)',
+data: salesValues,
+borderColor: '#059669',
+backgroundColor: 'rgba(5, 150, 105, 0.1)',
+fill: true,
+tension: 0.3
+}]
+},
+options: { responsive: true, maintainAspectRatio: false }
+});
+}
+function updateTopProductsChart(productSales) {
+const sortedProducts = Object.entries(productSales).sort((a, b) => b[1] - a[1]).slice(0, 5);
+const labels = sortedProducts.map(p => p[0]);
+const data = sortedProducts.map(p => p[1]);
+if (topProductsChart) topProductsChart.destroy();
+const ctx = document.getElementById('topProductsChart').getContext('2d');
+topProductsChart = new Chart(ctx, {
+type: 'doughnut',
+data: {
+labels: labels,
+datasets: [{
+data: data,
+backgroundColor: ['#10B981', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6']
+}]
+},
+options: { responsive: true, maintainAspectRatio: false }
+});
+}
+function updateCustomerChart(customerSales) {
+const sortedCustomers = Object.entries(customerSales).sort((a, b) => b[1] - a[1]).slice(0, 5);
+const labels = sortedCustomers.map(c => c[0]);
+const data = sortedCustomers.map(c => c[1]);
+if (customerChart) customerChart.destroy();
+const ctx = document.getElementById('customerChart').getContext('2d');
+customerChart = new Chart(ctx, {
+type: 'bar',
+data: {
+labels: labels,
+datasets: [{
+label: 'Total Belanja (Rp)',
+data: data,
+backgroundColor: '#3B82F6'
+}]
+},
+options: { responsive: true, maintainAspectRatio: false }
+});
+}
+// Auto-refresh data real-time per 30 detik
+setInterval(fetchData, 30000);
+window.onload = fetchData;
+
+
+
+<FollowUp>
+Apakah Anda ingin tombol **"Bukti Bayar"** ini langsung membuka gambar di tab baru seperti konfigurasi di atas, atau Anda lebih memilih sistem **Pop-up Modal** interaktif di dalam halaman dashboard yang sama? Beritahu saya agar kodenya bisa langsung disesuaikan!
+</FollowUp>
+
+kamu ahli dalam bidang web programing. tolong buatkan program dashboard penjualan panenku.co.id yang dapat diakses dimanapun dan update reel time dengan menarik data dari google sheet data penjualan sebagai sourcenya. pada halaman web tolong tampilkan informasi total penjualan perbulan, minggu dan hari berupa grafik. tampilkan juga 5 produk terlaris yang sering dibeli dalam chart dan grafik belanja perorangan. tampilan web dibuat interaktif dan menarik. buatkan saya tutorialnya tahap demi tahap yang mudah saya pahami karena saya orang awam.
+
+Membuat dashboard web real-time yang terhubung ke Google Sheets sangatlah mudah, bahkan untuk orang awam sekalipun. Kita tidak perlu menyewa server atau database mahal. Google Sheets akan berfungsi sebagai "otak/database" penyimpanan data Anda, dan kita akan membuat halaman web gratisan yang menarik menggunakan GitHub Pages.
+Berikut adalah panduan langkah demi langkah (tahap demi tahap) dari nol untuk membuat dashboard penjualan Panenku.co.id.
+
+Tahap 1: Menyiapkan Database di Google Sheets
+
+Langkah pertama adalah membuat tempat penyimpanan data penjualan Anda dengan format kolom yang benar agar bisa dibaca oleh halaman web.
+1. Buka Google Sheets dan buat dokumen baru.
+2. Di baris pertama (baris 1), buat nama kolom (Header) persis seperti berikut:
+	• A1: Tanggal (Format pengisian: TAHUN-BULAN-HARI, contoh: 2026-11-05)
+	• B1: Nama_Pelanggan (Contoh: Budi Santoso)
+	• C1: Produk (Contoh: Sayuran Segar atau Buah Naga)
+	• D1: Jumlah (Isi dengan angka kuantitas barang, contoh: 3)
+	• E1: Total_Harga (Isi dengan angka nominal tanpa Rp atau titik, contoh: 45000)
+	• F1: Status (Isi dengan kata Lunas atau Pending)
+	• G1: Link_Bukti_Bayar (Isi dengan URL/link foto bukti transfer dari Google Drive atau internet jika statusnya Lunas)
+3. Isi beberapa baris di bawahnya dengan data contoh (dummy) untuk uji coba.
+
+Tahap 2: Membuka Akses Data (Publish ke Web)
+
+Agar halaman web Anda bisa mengambil data dari Google Sheets secara real-time, Anda harus membagikan dokumen tersebut dalam format link data mentah (CSV).
+1. Di Google Sheets Anda, klik menu File di pojok kiri atas.
+2. Pilih opsi Share (Bagikan), lalu klik Publish to web (Publikasikan ke web).
+3. Pada kotak dialog yang muncul, ubah pilihan dari Web page menjadi Comma-separated values (.csv).
+4. Klik tombol Publish (Publikasikan) dan konfirmasi dengan klik OK.
+5. Google Sheets akan memberikan sebuah link URL panjang. Salin (Copy) link URL tersebut. Simpan di Notepad karena link ini akan kita masukkan ke dalam kode web.
+
+Tahap 3: Membuat File Script Web (index.html)
+
+Sekarang saatnya menyusun tampilan visual dashboard. Anda hanya memerlukan satu file saja.
+1. Buka aplikasi Notepad (di Windows) atau TextEdit (di Mac).
+2. Copy seluruh kode di bawah ini dan paste ke dalam Notepad Anda:
+html
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panenku.co.id - Sales Dashboard Real-Time</title>
+    <!-- Framework Desain (Tailwind CSS) -->
+    <script src="https://jsdelivr.net"></script>
+    <!-- Pembuat Grafik (Chart.js) -->
+    <script src="https://jsdelivr.net"></script>
+    <!-- Pembaca Google Sheets (PapaParse) -->
+    <script src="https://cloudflare.com"></script>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans">
+
+    <!-- Navigasi Atas -->
+    <nav class="bg-emerald-600 text-white p-4 shadow-md flex justify-between items-center sticky top-0 z-50">
+        <div class="flex items-center space-x-2">
+            <span class="text-2xl font-bold tracking-wider">Panenku<span class="text-emerald-200">.co.id</span></span>
+            <span class="bg-emerald-700 text-xs px-2 py-1 rounded-full animate-pulse">Live Dashboard</span>
+        </div>
+        <button onclick="fetchData()" class="bg-emerald-500 hover:bg-emerald-400 text-white text-sm font-semibold py-2 px-4 rounded-lg shadow transition cursor-pointer">
+            🔄 Segarkan Data
+        </button>
+    </nav>
+
+    <!-- Konten Utama -->
+    <main class="max-w-7xl mx-auto p-4 lg:p-8 space-y-6">
+        
+        <!-- Bagian Grafik Utama: Tren Penjualan Harian, Mingguan, Bulanan -->
+        <section class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+            <h2 class="text-lg font-bold text-slate-700 mb-4">📈 Grafik Tren Total Penjualan (Real-Time)</h2>
+            <div class="relative h-80 w-full">
+                <canvas id="trendChart"></canvas>
+            </div>
+        </section>
+
+        <!-- Bagian Grafik Sampingan: Produk Terlaris & Belanja Perorangan -->
+        <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- 5 Produk Terlaris -->
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <h2 class="text-lg font-bold text-slate-700 mb-4">🏆 Top 5 Produk Terlaris (Kuantitas)</h2>
+                <div class="relative h-72 w-full flex justify-center">
+                    <canvas id="topProductsChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Belanja Perorangan -->
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <h2 class="text-lg font-bold text-slate-700 mb-4">👤 Grafik Belanja Perorangan (Pelanggan Setia)</h2>
+                <div class="relative h-72 w-full">
+                    <canvas id="customerChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- Tabel Riwayat Penjualan & Tombol Bukti Bayar -->
+        <section class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+            <h2 class="text-lg font-bold text-slate-700 mb-4">📄 Riwayat Penjualan & Status Pembayaran</h2>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-slate-200">
+                    <thead class="bg-slate-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Tanggal</th>
+                            <th class="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Pelanggan</th>
+                            <th class="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Produk</th>
+                            <th class="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Total Harga</th>
+                            <th class="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Status</th>
+                            <th class="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="transaction-table" class="bg-white divide-y divide-slate-200 text-sm">
+                        <!-- Data diisi oleh JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        // TARUH LINK URL CSV GOOGLE SHEETS ANDA DI BAWAH INI
+        const SHEET_URL = 'TEMPEL_LINK_CSV_GOOGLE_SHEET_ANDA_DISINI';
+
+        let trendChart, topProductsChart, customerChart;
+
+        async function fetchData() {
+            if (SHEET_URL === 'TEMPEL_LINK_CSV_GOOGLE_SHEET_ANDA_DISINI') {
+                alert('Peringatan: Silakan ganti kata TEMPEL_LINK_CSV_GOOGLE_SHEET_ANDA_DISINI dengan link dari Google Sheets Anda pada kode!');
+                return;
+            }
+            Papa.parse(SHEET_URL, {
+                download: true,
+                header: true,
+                dynamicTyping: true,
+                complete: function(results) {
+                    processData(results.data);
+                }
+            });
+        }
+
+        function processData(data) {
+            const cleanData = data.filter(row => row.Tanggal && row.Total_Harga);
+
+            let productSales = {}, customerSales = {}, dateSales = {};
+
+            // Urutkan data berdasarkan tanggal terbaru
+            cleanData.sort((a, b) => new Date(b.Tanggal) - new Date(a.Tanggal));
+
+            const tableBody = document.getElementById('transaction-table');
+            tableBody.innerHTML = '';
+
+            cleanData.forEach(row => {
+                // Hitung akumulasi data untuk grafik
+                dateSales[row.Tanggal] = (dateSales[row.Tanggal] || 0) + row.Total_Harga;
+                productSales[row.Produk] = (productSales[row.Produk] || 0) + row.Jumlah;
+                customerSales[row.Nama_Pelanggan] = (customerSales[row.Nama_Pelanggan] || 0) + row.Total_Harga;
+
+                // Membuat tampilan badge status
+                const isLunas = String(row.Status).trim().toLowerCase() === 'lunas';
+                const statusBadge = isLunas 
+                    ? `<span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">Lunas</span>` 
+                    : `<span class="px-2 py-1 text-xs font-semibold rounded-full bg-amber-100 text-amber-800">Pending</span>`;
+
+                // Membuat Tombol Bukti Bayar Aktif jika sudah Lunas dan ada Link-nya
+                const actionButton = (isLunas && row.Link_Bukti_Bayar)
+                    ? `<a href="${row.Link_Bukti_Bayar}" target="_blank" class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-1 px-3 rounded shadow transition">👁️ Bukti Bayar</a>`
+                    : `<span class="text-slate-400 text-xs">-</span>`;
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap">${row.Tanggal}</td>
+                    <td class="px-6 py-4 whitespace-nowrap font-medium text-slate-900">${row.Nama_Pelanggan}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${row.Produk}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${formatRupiah(row.Total_Harga)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${statusBadge}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${actionButton}</td>
+                `;
+                tableBody.appendChild(tr);
+            });
+
+            // Tampilkan ke Grafik
+            renderCharts(dateSales, productSales, customerSales);
+        }
+
+        function formatRupiah(angka) {
+            return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(angka);
+        }
+
+        function renderCharts(dateSales, productSales, customerSales) {
+            // 1. Grafik Tren Penjualan
+            const sortedDates = Object.keys(dateSales).sort();
+            const salesValues = sortedDates.map(date => dateSales[date]);
+
+            if (trendChart) trendChart.destroy();
+            trendChart = new Chart(document.getElementById('trendChart').getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels: sortedDates,
+                    datasets: [{
+                        label: 'Pendapatan Penjualan (Rp)',
+                        data: salesValues,
+                        borderColor: '#059669',
+                        backgroundColor: 'rgba(5, 150, 105, 0.1)',
+                        fill: true,
+                        tension: 0.2
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+
+            // 2. Grafik Top 5 Produk
+            const topProducts = Object.entries(productSales).sort((a, b) => b[1] - a[1]).slice(0, 5);
+            if (topProductsChart) topProductsChart.destroy();
+            topProductsChart = new Chart(document.getElementById('topProductsChart').getContext('2d'), {
+                type: 'doughnut',
+                data: {
+                    labels: topProducts.map(p => p[0]),
+                    datasets: [{
+                        data: topProducts.map(p => p[1]),
+                        backgroundColor: ['#10B981', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6']
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+
+            // 3. Grafik Belanja Perorangan
+            const topCustomers = Object.entries(customerSales).sort((a, b) => b[1] - a[1]).slice(0, 5);
+            if (customerChart) customerChart.destroy();
+            customerChart = new Chart(document.getElementById('customerChart').getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: topCustomers.map(c => c[0]),
+                    datasets: [{
+                        label: 'Total Belanja (Rp)',
+                        data: topCustomers.map(c => c[1]),
+		backgroundColor: '#3B82F6'
+}]
+},
+options: { responsive: true, maintainAspectRatio: false }
+});
+}
+// Auto-refresh otomatis data dari Google Sheets setiap 30 detik (Real-Time)
+setInterval(fetchData, 30000);
+window.onload = fetchData;
+
